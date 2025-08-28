@@ -120,7 +120,7 @@ Using this syntax, you can now construct and test more complex queries with the 
 ./query_monitors.sh --query "(status:alert OR status:warn) AND (monitor_tags:team:infra OR monitor_tags:team:dev)" --output-format csv
 
 # Complex notification query with wildcards
-./query_monitors.sh --query "notification:(pagerduty-Growth-Monitoring-* OR pagerduty-Turn-On-*)" --output-format json
+./query_monitors.sh --query "notification:(pagerduty-Team-A-* OR pagerduty-Team-B-*)" --output-format json
 ```
 
 ## Pagination and Output Handling
