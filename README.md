@@ -4,12 +4,19 @@ Bash script to export monitor information via the Datadog API
 
 A simple Bash script to query the Datadog Monitors API with a command-line search query and save the output as either a JSON or CSV file.
 
-The script uses curl to make the API request and jq for JSON processing, which is necessary for converting the output to CSV.
+The script uses curl to make the API request and jq for JSON processing, which is necessary for converting the output to CSV. The script automatically handles pagination to retrieve all results and properly URL-encodes complex queries with special characters.
+
+## Features
+
+- **Automatic pagination**: Retrieves all monitors across multiple pages
+- **Complex query support**: Handles wildcards, boolean operators, and special characters with automatic URL encoding
+- **Dual output formats**: JSON (preserves full data structure) and CSV (flattens arrays and objects)
+- **Flexible authentication**: Environment variables or local credentials file
 
 ## Prerequisites
 
 - Datadog API and Application Keys: These must be set as environment variables DD_API_KEY and DD_APP_KEY for authentication, or provided in a `.credentials` file (see setup instructions below).
-- jq: A lightweight and flexible command-line JSON processor. It is required for converting the JSON output to CSV.
+- jq: A lightweight and flexible command-line JSON processor. It is required for converting the JSON output to CSV and handling pagination.
 
 The script: query_monitors.sh
 
@@ -33,6 +40,8 @@ The script: query_monitors.sh
    ```
 
 1. Run the script with your desired query and output format.
+
+**Note**: The script automatically handles pagination and will fetch all results across multiple pages. Complex queries with parentheses, wildcards, and special characters are automatically URL-encoded.
 
 ### Example 1: Export all "alert" status monitors as a JSON file
 
@@ -109,7 +118,30 @@ Using this syntax, you can now construct and test more complex queries with the 
 ```sh
 # Query for all "alert" or "warn" status monitors tagged with either "team:infra" OR "team:dev"
 ./query_monitors.sh --query "(status:alert OR status:warn) AND (monitor_tags:team:infra OR monitor_tags:team:dev)" --output-format csv
+
+# Complex notification query with wildcards
+./query_monitors.sh --query "notification:(pagerduty-Growth-Monitoring-* OR pagerduty-Turn-On-*)" --output-format json
 ```
+
+## Pagination and Output Handling
+
+The script automatically handles pagination and will fetch all results across multiple pages. When a query returns more than 30 monitors (the default page size), you'll see progress output like this:
+
+```sh
+./query_monitors.sh --query "status:alert" --output-format json
+# Output: Fetching page 1...
+# Output: Found 3 page(s) of results
+# Output: Fetching page 2...
+# Output: Fetching page 3...
+# Result: All 75 monitors saved to monitors_output.json
+```
+
+### CSV Output Format
+
+When using CSV output, the script automatically flattens complex data structures:
+- **Arrays** (like tags, metrics) are joined with semicolons: `"tag1;tag2;tag3"`
+- **Objects** (like creator info) are converted to JSON strings
+- **All data** from all pages is included in a single CSV file
 
 ### Wildcard Queries
 

@@ -92,15 +92,56 @@ if [ -z "$OUTPUT_FILE" ]; then
   fi
 fi
 
-# Build the API request URL
-API_URL="https://api.${DD_SITE}/api/v1/monitor/search?query=${DD_QUERY}"
+# URL encode the query to handle special characters
+ENCODED_QUERY=$(printf '%s' "${DD_QUERY}" | jq -sRr @uri)
 
-# Make the API call and store the JSON output
-echo "Querying Datadog for monitors matching: ${DD_QUERY}"
-API_RESPONSE=$(curl -s -X GET "${API_URL}" \
--H "Accept: application/json" \
--H "DD-API-KEY: ${DD_API_KEY}" \
--H "DD-APPLICATION-KEY: ${DD_APP_KEY}")
+# Build the API request URL
+API_URL="https://api.${DD_SITE}/api/v1/monitor/search?query=${ENCODED_QUERY}"
+
+# Function to fetch all pages of results
+fetch_all_monitors() {
+  local all_monitors="[]"
+  local page=0
+  local total_pages=1
+  
+  echo "Querying Datadog for monitors matching: ${DD_QUERY}" >&2
+  
+  while [ $page -lt $total_pages ]; do
+    echo "Fetching page $((page + 1))..." >&2
+    
+    # Add page parameter to the URL
+    local page_url="${API_URL}&page=${page}"
+    
+    local response=$(curl -s -X GET "${page_url}" \
+    -H "Accept: application/json" \
+    -H "DD-API-KEY: ${DD_API_KEY}" \
+    -H "DD-APPLICATION-KEY: ${DD_APP_KEY}")
+    
+    # Extract page count from first response
+    if [ $page -eq 0 ]; then
+      total_pages=$(echo "$response" | jq -r '.metadata.page_count // 1')
+      echo "Found $total_pages page(s) of results" >&2
+    fi
+    
+    # Extract monitors from this page and merge with existing
+    local page_monitors=$(echo "$response" | jq -r '.monitors // []')
+    all_monitors=$(echo "$all_monitors $page_monitors" | jq -s 'add')
+    
+    page=$((page + 1))
+  done
+  
+  # Create final response with all monitors
+  local first_response=$(curl -s -X GET "${API_URL}&page=0" \
+  -H "Accept: application/json" \
+  -H "DD-API-KEY: ${DD_API_KEY}" \
+  -H "DD-APPLICATION-KEY: ${DD_APP_KEY}")
+  
+  # Combine metadata from first response with all monitors
+  echo "$first_response" | jq --argjson monitors "$all_monitors" '.monitors = $monitors'
+}
+
+# Fetch all monitors across all pages
+API_RESPONSE=$(fetch_all_monitors)
 
 if [ "$OUTPUT_FORMAT" == "json" ]; then
   echo "${API_RESPONSE}" > "$OUTPUT_FILE"
@@ -111,12 +152,22 @@ elif [ "$OUTPUT_FORMAT" == "csv" ]; then
     exit 1
   fi
   
-  # Convert JSON to CSV using jq.
+  # Convert JSON to CSV using jq, flattening complex data types
   echo "${API_RESPONSE}" | jq -r '
     if (.monitors | length) > 0 then
       ( .monitors[0] | keys_unsorted ) as $keys
       | ( $keys | @csv ),
-      ( .monitors[] | [.[ $keys[] ]] | @csv )
+      ( .monitors[] | 
+        [.[ $keys[] ] | 
+          if type == "array" then 
+            map(if type == "object" then tostring else . end) | join(";") 
+          elif type == "object" then 
+            tostring 
+          else 
+            . 
+          end
+        ] | @csv 
+      )
     end
   ' > "$OUTPUT_FILE"
   echo "Output saved to ${OUTPUT_FILE}"
